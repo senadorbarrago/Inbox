@@ -1,0 +1,90 @@
+DO $$<<block>>
+DECLARE
+	source_profile text = 'SRC-PROFILE-002';
+	jobinstance text = '5744196f-2f4e-422d-a4ae-d3e917d6c78d';
+	datasetcode text = 'ITRS';
+	data_record record;
+	
+	update_statement text;
+	join_statement text;
+	command text;
+	
+	status_field text = 'status';
+	remarks_field text = 'remarks';
+	
+BEGIN
+	FOR data_record IN
+		SELECT 
+			b.code sourceprofile,
+			d.code datafield,
+			c.code referencetable,
+			a.reference_field_name referencefieldname
+		FROM ibs_reference_field a
+		JOIN ibs_source_profile b ON
+			b.code = source_profile AND
+			b.id = a.fk_source_profile AND
+			b.is_deleted = false
+		JOIN ibs_reference_table c ON
+			c.id = a.fk_reference_table AND
+			c.is_deleted = false
+		JOIN conf_data_field d ON
+			d.id = a.fk_data_field AND
+			d.is_deleted = false
+		WHERE a.is_deleted = false
+	LOOP
+		RAISE INFO 'data: %', data_record.sourceprofile;
+		RAISE INFO 'data: %', data_record.datafield;
+		RAISE INFO 'data: %', data_record.referencetable;
+		RAISE INFO 'data: %', data_record.referencefieldname;
+		
+		update_statement = 'UPDATE ibstrnmodeldata
+								SET itmdmodelvalue = ''REJECTED''
+							FROM ';
+		
+		join_statement = '
+						(SELECT a.itmdtransid transid FROM ibstrnmodeldata a
+							LEFT JOIN '||data_record.referencetable||' b ON 
+								b.'||data_record.referencefieldname||' = a.itmdmodelvalue AND
+								b.is_deleted = false
+							WHERE 
+								a.itmdjobinstance = '''||jobinstance||''' AND
+								a.dataset = '''||datasetcode||''' AND
+								a.itmdmodelcolumn = LOWER('''||data_record.datafield||''') AND
+								b.id IS NULL) tbl1 
+						WHERE itmdtransid = tbl1.transid AND
+							  itmdmodelcolumn = '''||status_field||'''';
+		
+		command = update_statement||join_statement;
+		
+		RAISE INFO 'command: %', command;
+
+		-- Execute Update Status Command;
+		-- EXECUTE command;
+		
+		update_statement = 'UPDATE ibstrnmodeldata
+								SET itmdmodelvalue = '''||data_record.datafield||': ''||tbl1.fieldvalue||'' - Not Existing''
+							FROM ';
+		
+		join_statement = '
+						(SELECT a.itmdtransid transid, a.itmdmodelvalue fieldvalue FROM ibstrnmodeldata a
+							LEFT JOIN '||data_record.referencetable||' b ON 
+								b.'||data_record.referencefieldname||' = a.itmdmodelvalue AND
+								b.is_deleted = false
+							WHERE 
+								a.itmdjobinstance = '''||jobinstance||''' AND
+								a.dataset = '''||datasetcode||''' AND
+								a.itmdmodelcolumn = LOWER('''||data_record.datafield||''') AND
+								b.id IS NULL) tbl1 
+						WHERE itmdtransid = tbl1.transid AND
+							  itmdmodelcolumn = '''||remarks_field||'''';
+		
+		command = update_statement||join_statement;
+		
+		RAISE INFO 'command: %', command;
+
+		-- Execute Update Status Command;
+		-- EXECUTE command;
+
+	END LOOP;
+END
+block$$

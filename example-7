@@ -1,0 +1,98 @@
+DO $$<<block>>
+DECLARE
+	status_field text = 'status';
+    remarks_field text = 'remarks';
+	command text;
+	updatestmt text;
+	joinstmt text;
+	jobinstance text = '5744196f-2f4e-422d-a4ae-d3e917d6c78d';
+	datasetcode text = 'ITRS';
+	
+	data_record record;
+	
+BEGIN
+	FOR data_record IN
+		SELECT 
+			DISTINCT(a.itmdtransid),
+			a.itmdmodelcolumn fieldname,
+			a.itmdmodelvalue fieldvalue,
+			e.code tablename, 
+			d.reference_field_name reffieldname
+		FROM ibstrnmodeldata a 
+		JOIN ibs_source_profile c ON
+			c.code = a.itmdsrcprofile AND
+			c.is_deleted = false
+		JOIN conf_record_profile x ON
+			x.id = c.fk_record_profile AND
+			x.is_deleted = false
+		JOIN conf_map_record_profile_data_field y ON
+			y.fk_record_profile = x.id AND
+			y.label = a.itmdmodelcolumn AND
+			y.is_deleted = false
+		JOIN conf_data_field b ON
+			b.id = y.fk_data_field AND
+			b.is_deleted = false
+		JOIN ibs_reference_field d ON
+			d.fk_data_field = b.id AND
+			d.fk_source_profile = c.id AND
+			d.is_deleted = false
+		JOIN ibs_reference_table e ON
+			e.id = d.fk_reference_table AND
+			e.is_deleted = false
+		WHERE
+			a.itmdjobinstance = jobinstance AND
+			a.dataset = datasetcode
+	LOOP
+		updatestmt = 'UPDATE ibstrnmodeldata
+					SET itmdmodelvalue = ''REJECTED''
+				  FROM';
+			
+		joinstmt = '(SELECT
+						DISTINCT a.itmdtransid transid
+					FROM ibstrnmodeldata a
+					LEFT JOIN '||data_record.tablename||' b ON '||
+						data_record.reffieldname||' = a.itmdmodelvalue AND
+						b.is_deleted = false
+					WHERE
+						a.itmdmodelcolumn = '''||data_record.fieldname||''' AND
+						a.itmdjobinstance = '''||jobinstance||''' AND
+						a.dataset = '''||datasetcode||''' AND
+						b.id IS NULL)tbl1
+					WHERE itmdtransid = tbl1.transid
+						AND itmdmodelcolumn = '''||status_field||'''';
+		
+		command = updatestmt||joinstmt;
+		
+		RAISE INFO 'update status command: %', command;
+
+		-- Execute Update Status Command
+		EXECUTE command;
+		
+		updatestmt = 'UPDATE ibstrnmodeldata
+					SET itmdmodelvalue = '''||data_record.fieldname||': '||data_record.fieldvalue||' - Not Existing''
+				  FROM';
+		
+		joinstmt = '(SELECT
+						DISTINCT a.itmdtransid transid
+					FROM ibstrnmodeldata a
+					LEFT JOIN '||data_record.tablename||' b ON '||
+						data_record.reffieldname||' = a.itmdmodelvalue AND
+						b.is_deleted = false
+					WHERE
+						a.itmdmodelcolumn = '''||data_record.fieldname||''' AND
+						a.itmdjobinstance = '''||jobinstance||''' AND
+						a.dataset = '''||datasetcode||''' AND
+						b.id IS NULL)tbl1
+					WHERE itmdtransid = tbl1.transid
+						AND itmdmodelcolumn = '''||remarks_field||'''';
+		
+		command = updatestmt||joinstmt;
+		
+		RAISE INFO 'update remarks command: %', command;
+
+		-- Execute Update Remarks Command
+		EXECUTE command;
+		
+	END LOOP;
+END
+block$$
